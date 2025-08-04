@@ -61,7 +61,7 @@ shiny::runApp("app.R")
 
 ## 🌍 Deployment
 
-Published on [shinyapps.io](https://your-shiny-url.shinyapps.io/project-name)
+Published on [shinyapps.io]([https://your-shiny-url.shinyapps.io/project-name](https://madarmen.shinyapps.io/group_project/))
 
 ---
 
