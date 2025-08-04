@@ -1,0 +1,609 @@
+---
+title: "Which Economic Factors Are Susceptible to Political Events"
+author: 
+  - "Armen Tamrazyan"
+  - "Armen Madoyan"
+  - "Samvel Stepanyan"
+  - "Yevgine Mnatsakanyan"
+output:
+  pdf_document:
+    fig_width: 4
+    fig_height: 4
+date: "2025-08-04"
+fontsize: 12pt
+header-includes:
+  - \usepackage{setspace}
+editor_options: 
+  #runtime: shiny
+  markdown: 
+    wrap: sentence
+#runtime: shiny
+---
+
+# Attention: To run the Rshiny app remove the "#" from yaml reader row with "runtime: shiny"
+# If you want to knit the rmd reject Rstudio to run the rshiny
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = F, message = F)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(readxl)
+library(shiny)
+library(DT)
+```
+
+# Overview
+
+This report investigates the relationship between major geopolitical events and their impact on economic indicators in Armenia and Georgia, two South Caucasus countries that are highly exposed to external shocks due to their geographic location and political vulnerability.
+Using data visualization techniques taught in the DS116 course, we aim to uncover patterns and shifts across multiple domains including trade (exports, imports), military spending, unemployment rates, and GDP per capita.
+The analysis is structured around four key geopolitical time periods: the 2014 Russia–Ukraine conflict, the 2018 Armenian Velvet Revolution, the 2020 COVID-19 pandemic and the 44-day Nagorno-Karabakh war, and the 2022 invasion of Ukraine.
+These events serve as breakpoints to observe whether and how economic indicators responded.
+By applying tools such as R Markdown, R Shiny dashboards, and tidyverse data wrangling, this project offers a multidimensional view of how politics and economics interact in volatile regions.
+The results will help academics, policymakers, and data scientists better understand vulnerability, resilience, and regional adaptation in the post-Soviet economic context.
+
+# Data Description
+
+The datasets for this project were sourced from publicly available, reputable sources.
+Macroeconomic indicators such as net exports, imports, GDP per capita, and military expenditures were collected from the World Bank in both current and constant USD formats.
+These were used to observe inflation-adjusted vs. raw economic performance.
+Country-specific unemployment statistics were retrieved from ArmStat (Armenia) and Geostat (Georgia).
+Raw Excel and CSV files were cleaned and reshaped in R.
+We converted wide-formatted time series into long formats for ggplot2 visualizations and reshaped key indicators for dashboard interactivity.
+Special attention was given to normalization — export/import figures were converted to billions of USD for intuitive comparison.
+Data was filtered to the shared range of 2012–2023 across all indicators to maintain consistency.
+All preprocessing was done using tidyverse, readxl, janitor, and custom transformation functions.
+
+```{r, echo = F}
+gdp_data <- read_excel("Data/Armenia_Georgia_GDP_PPP.xlsx")
+military_data <- read_excel("Data/Military_Expanditure_percent.xls")
+edu_spending_data <- read_excel("Data/edu_spending.xlsx")
+total_enrollment_data <- read_excel("Data/total_enrollment.xlsx")
+export_data <- read_excel("Data/Exports_Constant_USD_Armenia_Georgia.xlsx")
+import_data <- read_excel("Data/Imports_Current_USD_Armenia_Georgia.xlsx")
+unemployment_data <- read_excel("Data/Unemployment_Data_Formated.xlsx")
+```
+
+# Literature Review
+
+Research on political-economic interaction consistently finds that macroeconomic volatility is often exacerbated by political instability, especially in transitioning economies.
+In the South Caucasus, limited institutional resilience and dependence on external markets amplify this effect.
+
+The World Bank, IMF, and regional studies by UNDP emphasize the role of conflict, migration, and reform in shaping labor markets and trade.
+Visual analytics — increasingly used by global think tanks — offer a clearer picture than raw data alone.
+Our study complements this by offering a visual-first, time-bound comparison between two countries with shared Soviet heritage but differing reform paths.
+
+# Hypothesis
+
+We hypothesize that trade indicators (exports/imports/net exports) and military expenditure are highly reactive to external political events, such as wars and revolutions, while unemployment and GDP per capita show more stable or delayed responses.
+Furthermore, we expect that Georgia — having undergone more liberalized reforms — may exhibit greater volatility but faster recovery, whereas Armenia may display slower reaction times but potentially more resilience in long-term indicators.
+
+# Functions
+
+```{r, echo = F}
+make_ts_data = function(df) {
+  df %>%
+    pivot_longer(
+      cols = matches("^\\d{4}$"),
+      names_to = "Year",
+      values_to = "Value"
+    ) %>%
+    select(`Country Name`, Year, Value) %>%
+    pivot_wider(
+      names_from = `Country Name`,
+      values_from = Value
+    ) %>%
+    mutate(Year = as.integer(Year))
+}
+
+visualise_ts_data = function(df, title, show_breaks, year_range, countries, y_label){
+  df = df %>% filter(Year >= year_range[1], Year <= year_range[2])
+  
+  p = ggplot(df, aes(x = Year)) +
+    labs(title = title, x = NULL, y = y_label, color = NULL) +
+    theme_minimal(base_size = 14) +
+    theme(
+      panel.grid.minor = element_blank(),
+      panel.grid.major.x = element_blank(),
+      plot.title = element_text(hjust = 0.5),
+      axis.text = element_text(color = "black"),
+      legend.position = "top"
+    )
+  
+  if ("Armenia" %in% countries)
+    p = p + geom_line(aes(y = Armenia, color = "Armenia"), size = 1.2)
+  if ("Georgia" %in% countries)
+    p = p + geom_line(aes(y = Georgia, color = "Georgia"), size = 1.2)
+  
+  p = p + scale_color_manual(values = c("Armenia" = "#B22222", "Georgia" = "#1E90FF")) +
+    scale_x_continuous(breaks = all_years)
+  
+  if (length(show_breaks) > 0) {
+    selected_breaks = breakpoints %>% filter(label %in% show_breaks, year >= year_range[1], year <= year_range[2])
+    p = p + geom_vline(xintercept = selected_breaks$year, linetype = "dashed") +
+      annotate(
+        "text",
+        x = selected_breaks$year,
+        y = max(df[,countries], na.rm = TRUE) * 1.15,
+        label = selected_breaks$label,
+        angle = 30,
+        vjust = 2.5,
+        hjust = 0.5,
+        size = 3,
+        color = "gray40"
+      )
+  }
+  
+  p
+}
+
+
+# ---------------- Load & Prepare Data ----------------
+df_gdp = make_ts_data(gdp_data)
+df_mil = make_ts_data(military_data)
+df_edu = make_ts_data(edu_spending_data)
+df_enroll = make_ts_data(total_enrollment_data)
+df_export = make_ts_data(export_data)
+df_import = make_ts_data(import_data)
+df_unemployment = unemployment_data %>%
+  mutate(Year = as.integer(Year))
+# Normalize to Billion
+scale_factor <- 1e9
+unit_label <- "Billions_USD"
+
+df_export[,-1] <- round(df_export[,-1] / scale_factor, 3)
+df_import[,-1] <- round(df_import[,-1] / scale_factor, 3)
+df_net = df_export
+df_net[,-1] <- round(df_export[,-1] - df_import[,-1], 3)
+
+breakpoints = data.frame(
+  year = c(2014, 2018, 2020, 2022),
+  label = c("Rus–Ukr_1st_War", "Velvet_Revolution", "44day_War_COVID19", "Rus–Ukr_2nd_War")
+)
+all_years = sort(unique(df_gdp$Year))
+
+
+```
+
+# Analysis
+
+```{r, echo= F, fig.cap = "gdpmilitary", fig.width = 10}
+plot_gdp_vs_military <- function(df_gdp, df_mil) {
+  df_bar <- df_gdp %>%
+    rename(Armenia_GDP = Armenia, Georgia_GDP = Georgia) %>%
+    left_join(rename(df_mil, Armenia_Mil = Armenia, Georgia_Mil = Georgia), by = "Year") %>%
+    pivot_longer(
+      cols = -Year,
+      names_to = "combined",
+      values_to = "Value"
+    ) %>%
+    separate(combined, into = c("Country", "MetricCode"), sep = "_") %>%
+    mutate(
+      Metric = recode(MetricCode,
+                      "GDP" = "GDP PPP USD",
+                      "Mil" = "Military Exp. (% GDP)")
+    )
+  
+  ggplot(df_bar, aes(x = factor(Year), y = Value, fill = Metric)) +
+    geom_bar(stat = "identity", position = position_dodge(width = 0.8)) +
+    facet_grid(Metric ~ Country, scales = "free_y") +
+    scale_fill_manual(values = c("#FF6F61", "#00BFC4")) +
+    labs(
+      x = "Year", y = NULL,
+      title = "Economic & Military Spending Trends by Country",
+      fill = "Metric"
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      legend.position = "top"
+    )
+}
+ 
+plot_gdp_vs_military(df_gdp, df_mil)
+```
+
+The chart illustrates the economic and military spending trends for Armenia and Georgia from 2012 to 2024.
+For Armenia, GDP PPP (in USD) remained relatively stable between 2012 and 2017, followed by a noticeable increase starting in 2018.
+The most significant jump occurred after 2021, likely reflecting post-war economic adjustments and regional shifts triggered by the second Russia–Ukraine war.
+By 2024, Armenia’s GDP PPP exceeded \$8,000, nearly doubling compared to its 2017 level.
+Armenia’s military spending, shown as a percentage of GDP, remained consistently high—above 4% throughout the period.
+Notably, it peaked in 2023 and 2024, surpassing 5%, indicating heightened defense priorities, especially following the 2020 war.
+In contrast, Georgia’s GDP PPP also experienced growth, particularly after a minor dip in 2020, reaching just under \$9,000 in 2024.
+However, Georgia maintained a much lower level of military expenditure as a percentage of GDP.
+It steadily declined from around 3% in 2012 to below 2% in recent years, showing a consistent trend of minimal defense spending.
+These contrasting trends highlight strategic differences: Armenia has prioritized defense spending heavily, especially in times of conflict, while Georgia has opted for a more economically conservative defense budget.
+Both countries, however, have demonstrated strong GDP growth since 2021, likely influenced by regional geopolitical shifts and economic realignments.
+
+```{r, echo= F, fig.cap = "Net Value"}
+
+plot_net_export <- function(df_net) {
+  df_net_long <- df_net %>%
+    pivot_longer(
+      cols = -Year,
+      names_to = "Country",
+      values_to = "NetExport"
+    ) %>%
+    filter(!is.na(NetExport))
+  
+  ggplot(df_net_long, aes(x = Year, y = NetExport, color = Country)) +
+    geom_line(size = 1.2) +
+    geom_point(size = 2) +
+    geom_hline(yintercept = 0, linetype = "dotted", color = "gray40") +
+    labs(
+      title = "Net Exports of Goods and Services (Exports − Imports)",
+      x = "Year",
+      y = "Net Export (Billion USD)",
+      color = "Country"
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      plot.subtitle = element_text(size = 11),
+      axis.title = element_text(size = 12),
+      legend.position = "bottom"
+    )
+}
+plot_net_export(df_net)
+```
+
+The line chart shows the net exports (exports minus imports) of goods and services for Armenia and Georgia from 2012 to 2024.
+Both countries exhibit persistently negative net exports throughout the period, indicating trade deficits.
+However, Armenia generally performs better than Georgia in maintaining a smaller trade deficit.
+From 2012 to 2017, Armenia shows a gradual improvement in net exports, peaking around 2017 with the deficit reduced to just below 1 billion USD.
+Georgia also improves during this time but maintains a larger gap, consistently hovering around –3 to –4 billion USD.
+After 2018, the situation deteriorates for both countries.
+Armenia's net exports steadily worsen, reaching a deficit of nearly –7 billion USD by 2024.
+Georgia's trade deficit also deepens significantly after 2020, dropping to nearly –8 billion USD by 2024.
+This sharp decline may reflect rising import dependency, currency pressures, or disrupted export flows due to global and regional geopolitical shocks.
+Overall, the visual underscores long-term structural trade imbalances in both countries, with Georgia exhibiting a more severe and widening trade deficit compared to Armenia.
+
+```{r, echo= F, fig.cap = "Education vs Enrollment"}
+plot_education_spending_vs_enrollment <- function(df_spending, df_enroll) {
+  spending_long <- df_spending %>%
+    pivot_longer(cols = -Year, names_to = "Country", values_to = "Education_Spending")
+  
+  enrollment_long <- df_enroll %>%
+    pivot_longer(cols = -Year, names_to = "Country", values_to = "Tertiary_Enrollment")
+  
+  edu_data <- left_join(spending_long, enrollment_long, by = c("Year", "Country"))
+  
+  ggplot(edu_data, aes(x = Education_Spending, y = Tertiary_Enrollment, color = Country)) +
+    geom_point(size = 3, alpha = 0.8) +
+    geom_smooth(method = "lm", se = FALSE, linetype = "dashed") +
+    labs(
+      title = "Higher Education Spending Impact to Enrollment Rate",
+      x = "Education Spending (% of GDP)",
+      y = "Tertiary Enrollment (% gross)",
+      color = "Country"
+    ) +
+    theme_minimal()
+}
+plot_education_spending_vs_enrollment(df_edu, df_enroll)
+```
+
+The scatter plot illustrates the relationship between higher education spending and tertiary enrollment rates in Armenia and Georgia.
+For Armenia (represented in red), there appears to be a slight negative correlation, with the regression line sloping downward.
+This suggests that increased spending on higher education has not translated into higher enrollment rates.
+In fact, enrollment rates remain relatively flat or declining despite fluctuations in education investment.
+This may point to structural issues in the education system, inefficiencies in spending, or socioeconomic factors discouraging university attendance.
+Conversely, Georgia (shown in blue) exhibits a strong positive correlation between higher education spending and tertiary enrollment.
+The upward-sloping trend line indicates that increased government investment in education is closely linked to rising enrollment rates.
+This implies more effective allocation of educational resources or greater public responsiveness to educational incentives.
+The contrast between the two countries highlights differences in policy effectiveness and public engagement in higher education.
+While both invest in the sector, Georgia appears to achieve better outcomes in enrollment growth relative to its education spending
+
+```{r, echo= F, fig.cap = "Unemployment BoxPlot"}
+plot_unemployment_boxplot <- function(df_unemployment) {
+  df_long <- pivot_longer(df_unemployment, cols = -Year, names_to = "Country", values_to = "Rate")
+  
+  ggplot(df_long, aes(y = Country, x = Rate, fill = Country)) +
+    geom_boxplot(outlier.shape = 16, outlier.size = 2, coef = 1.5, width = 0.45) + 
+    stat_boxplot(geom = "errorbar", width = 0.2) + 
+    labs(
+      title = "Distribution of Unemployment Rates (2012–2024)",
+      x = "Unemployment Rate (%)",
+      y = NULL
+    ) +
+    theme_minimal() +
+    scale_fill_manual(values = c("Georgia" = "lightblue", "Armenia" = "lightyellow")) +
+    theme(legend.position = "none")
+}
+plot_unemployment_boxplot(df_unemployment)
+
+```
+
+This boxplot compares the distribution of unemployment rates between Armenia and Georgia over the period 2012–2024.
+
+Armenia: The unemployment rate is lower and more stable.
+The interquartile range (IQR) is narrower, indicating less fluctuation over time.
+The median unemployment rate is approximately 17%, with the lower and upper quartiles around 15% and 18%, respectively.
+The minimum value is around 13%, and the maximum is slightly above 20%.
+
+Georgia: The unemployment rate is both higher and more variable.
+The IQR is wider, ranging roughly from 18% to 23%, with a median around 20%.
+The minimum rate is about 14%, and the maximum exceeds 26%.
+
+```{r, echo= F, fig.cap = "UI"}
+# ----------------- UI ---------------------
+
+ui <- fluidPage(
+  titlePanel("Armenia & Georgia: Political-Economic Dashboard"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      radioButtons("dataset", "Select Dataset:",
+                   choices = c("GDP PPP",
+                               "Military Spending",
+                               "Education Spending",
+                               "Enrollment Rate",
+                               "Export",
+                               "Import",
+                               "Unemployment"),
+                   selected = "GDP PPP"),
+      
+      
+      sliderInput("year_range", "Select Year Range:",
+                  min = min(all_years), max = max(all_years),
+                  value = range(all_years), sep = "", step = 1),
+      
+      checkboxGroupInput("countries", "Select Countries:",
+                         choices = c("Armenia", "Georgia"),
+                         selected = c("Armenia", "Georgia")),
+      
+      checkboxGroupInput("breaks", "Show Breakpoint Events:",
+                         choices = breakpoints$label,
+                         selected = breakpoints$label)
+    ),
+    
+    mainPanel(
+      plotOutput("tsPlot", height = "600px"),
+      br(),
+      DTOutput("summary_table")
+    )
+  ),
+  br(),
+  h3("Additional Visualizations"),
+  plotOutput("gdp_mil_plot", height = "400px"),
+  plotOutput("edu_enroll_plot", height = "400px"),
+  plotOutput("net_export_plot", height = "400px"),
+  plotOutput("unemployment_plot",  height = "400px")
+  
+)
+
+```
+
+```{r, echo= F, fig.cap = "Server"}
+
+# ----------------- Server ---------------------
+server = function(input, output, session) {
+  
+  selected_df <- reactive({
+    switch(input$dataset,
+           "GDP PPP" = df_gdp,
+           "Military Spending" = df_mil,
+           "Education Spending" = df_edu,
+           "Enrollment Rate" = df_enroll,
+           "Export" = df_export,
+           "Import" = df_import,
+           "Unemployment" = df_unemployment)
+  })
+  
+  output$tsPlot <- renderPlot({
+    df <- selected_df()
+    
+    title <- switch(input$dataset,
+                    "GDP PPP" = "GDP PPP",
+                    "Military Spending" = "Military Spending",
+                    "Education Spending" = "Education Spending",
+                    "Enrollment Rate" = "Enrollment Rate",
+                    "Export" = "Export of Goods (Billion USD)",
+                    "Import" = "Import of Goods (Billion USD)",
+                    "Unemployment" = "Unemployment Rate (%)")
+    
+    y_label <- switch(input$dataset,
+                      "GDP PPP" = "USD",
+                      "Military Spending" = "% of GDP",
+                      "Education Spending" = "% of GDP",
+                      "Enrollment Rate" = "% of population",
+                      "Export" = "Billion USD",
+                      "Import" = "Billion USD",
+                      "Unemployment" = "% of population")
+    
+    visualise_ts_data(
+      df = df,
+      title = title,
+      show_breaks = input$breaks,
+      year_range = input$year_range,
+      countries = input$countries,
+      y_label = y_label
+    )
+  })
+  
+  output$summary_table = renderDT({
+    df = selected_df() %>%
+      filter(Year >= input$year_range[1], Year <= input$year_range[2])
+    
+    max_year = max(df$Year, na.rm = TRUE)
+    
+    data = data.frame(
+      Country = c("Armenia", "Georgia"),
+      `Most Recent Year` = max_year,
+      `Most Recent Value` = c(
+        df %>% filter(Year == max_year) %>% pull(Armenia),
+        df %>% filter(Year == max_year) %>% pull(Georgia)
+      )
+    )
+    
+    datatable(
+      data,
+      escape = FALSE,
+      options = list(dom = 't', paging = FALSE),
+      rownames = FALSE
+    )
+  })
+  
+  output$gdp_mil_plot <- renderPlot({
+    plot_gdp_vs_military(df_gdp, df_mil)
+  })
+  
+  output$edu_enroll_plot <- renderPlot({
+    plot_education_spending_vs_enrollment(df_edu, df_enroll)
+  })
+  
+  output$net_export_plot <- renderPlot({
+    plot_net_export(df_net)
+  })
+  
+  output$unemployment_plot <- renderPlot({
+    plot_unemployment_boxplot(df_unemployment)
+  })
+}
+
+```
+
+```{r, echo= F, fig.cap = "App"}
+# ----------------- Run App ---------------------
+shinyApp(ui, server)
+
+```
+
+# Education Rate
+
+This chart visualizes the enrollment rate—defined as the proportion of the population enrolled in formal education systems—in Armenia and Georgia between 2012 and 2023, with reference to four major political and geopolitical events.
+From 2012 onward, Georgia shows a dramatic and consistent increase in enrollment, rising from just under 35% to over 80% by 2023.
+This steep growth may reflect substantial investments in educational infrastructure, reforms targeting access and equity, and successful outreach to rural or previously excluded populations.
+Georgia’s sharp gains around 2014–2018 align with the post-Russia–Ukraine conflict period and domestic stability, suggesting a strategic emphasis on human capital development.
+Armenia, in contrast, starts with a slightly higher enrollment rate in 2012 but shows a more modest trajectory—rising from 42% to just above 61% over the same period.
+A temporary stagnation occurs between 2017 and 2020, followed by an upward correction after the 44-day war and pandemic years.
+Still, the overall pace lags significantly behind Georgia.
+This visual reveals a growing gap in educational inclusion, with Georgia outperforming Armenia by nearly 20 percentage points in the most recent year.
+The reasons may lie in structural constraints within Armenia’s educational system, underinvestment (as seen in the education spending data), rural-urban access disparities, or limited adult education and reskilling programs.
+Ultimately, this figure highlights the widening disparity in educational reach and access between the two countries, underscoring a potential area of long-term development risk for Armenia if not addressed.
+
+# Education Spent
+
+This chart presents education spending as a percentage of GDP in Armenia and Georgia from 2012 to 2023, overlaid with key political and geopolitical events: the first Russia–Ukraine war (2014), Armenia’s Velvet Revolution (2018), the 44-day war and COVID-19 (2020), and the second Russia–Ukraine war (2022).
+Throughout the observed period, Georgia consistently spends a higher share of its GDP on education compared to Armenia.
+From 2013 onward, Georgia's education expenditure rises sharply, stabilizing around 3.8–3.9% of GDP during 2018–2023.
+This reflects a clear policy focus on human capital investment and education reforms, possibly supported by international donor efforts and alignment with European standards.
+Armenia’s education spending, on the other hand, fluctuates around 2.4–2.8% of GDP until 2022.
+A dip is observed in 2014, coinciding with the regional instability triggered by the first Russia–Ukraine war.
+Spending slightly recovers during the Velvet Revolution period, likely reflecting optimism for reform.
+However, post-2020, Armenia’s education investment fails to grow and instead plummets in 2023 to just 0.24% of GDP, an alarming decline.
+This steep fall may reflect fiscal reallocations in the aftermath of the 44-day war, economic pressure from inflation and refugee support, or a delayed budgeting crisis due to broader geopolitical instability.
+It may also suggest challenges in public sector prioritization or data reporting inconsistencies for the latest year.
+
+# Export
+
+This chart displays the annual export values of Armenia and Georgia from 2012 to 2024, alongside four major geopolitical and domestic turning points.
+From 2012 to 2019, Georgia maintained a higher export volume than Armenia, with values rising steadily from 5.4 billion to nearly 10 billion US dollars.
+This growth was briefly interrupted in 2020 due to the COVID-19 pandemic and related supply chain disruptions, but Georgia’s exports recovered sharply in the following years, reaching over \$11 billion in 2024.
+Armenia’s export trend reveals a more transformative trajectory.
+Starting from a lower base of around 2.5 billion dollars in 2012, Armenian exports gradually increased until 2019, dipped in 2020—likely due to the twin shocks of COVID-19 and the 44-day war—and then rebounded sharply.
+Between 2021 and 2024, Armenia’s exports nearly tripled, culminating in a record high of \$12.36 billion in 2024—surpassing Georgia for the first time in this period.
+
+This striking post-2021 acceleration may be attributed to multiple factors:
+
+Realignment of regional trade flows following the second Russia-Ukraine war.
+Increased demand for Armenian goods amid regional reconfiguration.
+Export diversification and re-export strategies leveraging Armenia’s strategic location.
+A possible boost in IT and service sector exports, not traditionally captured in earlier years.
+The visual underscores Armenia’s recent emergence as a strong export-driven economy, overcoming its historical lag behind Georgia and exhibiting remarkable resilience and adaptability in the face of regional crises.
+It also highlights the importance of global disruptions as opportunities, particularly for smaller economies that can reposition themselves rapidly.
+
+# Import
+
+This chart illustrates the total annual value of imported goods in Armenia and Georgia from 2012 to 2024, highlighting key geopolitical events.
+
+Georgia consistently imported more than Armenia throughout the entire period, starting at around 9 billion US dollars in 2012 and rising to over \$18.7 billion in 2024.
+Despite dips in 2015–2016 and again in 2020 (likely due to the global COVID-19 shock), Georgia’s imports recovered quickly and grew rapidly in the post-2021 period, particularly after the second Russia-Ukraine war.
+Armenia’s import growth was slower initially, remaining between 5 billion and 7 US Dollars billion from 2012 to 2019, with a noticeable dip in 2015 and again in 2020—reflecting both the 44-day war and COVID-19 disruptions.
+However, from 2021 onward, Armenia's imports surged dramatically, reaching \$19.54 billion in 2024, surpassing Georgia for the first time.
+
+This steep rise may suggest: A dramatic expansion in consumer demand and industrial activity.
+Heavy reliance on imported goods to support increased exports and internal
+
+# GDP
+
+This line chart presents a comparison of GDP per capita in Purchasing Power Parity (PPP) between Armenia and Georgia from 2012 to 2024.
+The chart includes four major political-economic turning points marked by vertical dashed lines: the first Russia–Ukraine war in 2014, Armenia’s Velvet Revolution in 2018, the 44-day Nagorno-Karabakh war alongside the COVID-19 pandemic in 2020, and the second Russia–Ukraine war in 2022.
+Throughout the entire period, Georgia maintains a higher GDP PPP than Armenia.
+From 2012 to 2014, both countries experience modest growth.
+However, following the 2014 Russia–Ukraine war, both economies show a slowdown, likely influenced by broader regional economic instability, currency devaluation, and sanctions on Russia affecting neighboring economies.
+From 2017 to 2019, a period of gradual recovery is visible in both countries.
+Armenia’s Velvet Revolution in 2018 did not disrupt GDP PPP growth, suggesting a relatively smooth political transition.
+In 2020, both countries experience a drop in GDP PPP. Armenia’s sharper decline corresponds to the twin crises of the COVID-19 pandemic and the 44-day war with Azerbaijan, both of which had significant social and economic impacts.
+Between 2021 and 2024, both Armenia and Georgia demonstrate rapid economic recovery.
+This period is characterized by significant growth in GDP PPP, particularly after the 2022 Russia–Ukraine war.
+Armenia’s steep rise may be linked to the influx of Russian migrants and businesses fleeing sanctions, increased remittances, and new economic activity resulting from this migration wave.
+By 2024, Armenia nearly closes the gap with Georgia, signaling stronger economic resilience and adaptability.
+This visualization reinforces the idea that while political shocks can temporarily disrupt economic performance, both Armenia and Georgia have shown considerable recovery capacity—especially when geopolitical shifts result in new economic inflows and reorganization.
+
+# MIlitiary Spending
+
+This chart compares military spending as a percentage of GDP for Armenia and Georgia from 2012 to 2023, with key political events marked by vertical dashed lines: the 2014 Russia–Ukraine war, the 2018 Armenian Velvet Revolution, the 2020 COVID-19 pandemic and 44-day war, and the 2022 Russia–Ukraine war.
+Throughout the timeline, Armenia’s military expenditure is significantly higher than Georgia’s, consistently exceeding 4% of GDP in most years.
+Georgia, in contrast, exhibits a gradual decline in military spending, dropping from just under 3% in 2012 to about 2% by 2023.
+The 44-day war in 2020 is particularly notable, as Armenia’s military spending reaches its peak during this time, surpassing 5% of GDP.
+This dramatic increase reflects the country’s urgent military mobilization and heightened defense priorities during the conflict.
+In the aftermath of the war, a temporary decline occurs in 2022, likely due to internal political restructuring, recovery costs, and shifting public finance priorities.
+However, by 2023, military expenditure in Armenia rises sharply again—likely as a reaction to continued regional tensions, lessons from past vulnerabilities, and the ongoing security threats exacerbated by the second Russia–Ukraine war.
+The surge indicates a reinforced commitment to military strengthening after 2022, despite economic constraints.
+Georgia’s relatively flat and declining trend suggests a strategic shift away from militarization, possibly due to NATO cooperation, budget reprioritization, or greater emphasis on diplomacy and soft security measures.
+Its military expenditure does not show any visible correlation with the external conflicts highlighted in the chart.
+Overall, this visual demonstrates how direct involvement in regional conflicts (such as Armenia's war in 2020) heavily influences military spending, while countries like Georgia with more stable borders or different defense strategies may follow a steadier, declining pattern.
+
+# Unemployment Rates This chart compares the unemployment rates in Armenia and Georgia from 2012 to 2024, marking four key regional events: the first and second Russia–Ukraine wars, Armenia's Velvet Revolution, and the 44-day war/COVID-19.
+Georgia started with a significantly higher unemployment rate, around 27% in 2012, and showed a steady decline over time.
+By 2024, Georgia's unemployment dropped to just under 14%, indicating notable labor market improvements over the decade despite temporary spikes, especially around 2021.
+Armenia, in contrast, began the period with a lower rate of about 17% in 2012, fluctuated mildly during the 2010s, but experienced a clear downward trend after 2020, likely due to post-war and post-pandemic recovery measures.
+By 2024, Armenia’s unemployment stood at 13.9%, slightly below Georgia's.
+The graph suggests that both countries improved labor conditions, with Armenia overtaking Georgia in terms of lower unemployment after 2022, highlighting Armenia's relatively more effective recent employment policies or economic shifts.
+
+# Conclusion and Recommendations
+
+This project has presented a comparative analysis of key economic indicators in Armenia and Georgia over the past decade, focusing on GDP trends, military spending, trade balance (net exports), unemployment rates, and education-related statistics.
+By using R for data wrangling and visualization, we identified critical trends and policy-relevant insights across pivotal geopolitical events such as the Russia-Ukraine wars, Armenia’s Velvet Revolution, and the 44-Day War.
+
+The data shows that while both countries exhibit similar economic vulnerabilities as small post-Soviet economies, their responses and trajectories diverge significantly in specific areas.
+Armenia's military spending relative to GDP has increased notably during conflict periods, whereas Georgia has seen more consistency in education investment.
+Trade patterns, especially in net exports, showed structural breaks aligned with regional instabilities, underlining the sensitivity of both economies to external shocks.
+
+Our findings stress the need for adaptive economic policies focused on reducing trade deficits, aligning education investment with labor market needs, and leveraging strategic periods of peace for economic recovery.
+Future studies can incorporate predictive models and more granular regional data to deepen this analysis.
+
+# References
+
+World Bank.
+(2024).
+World Development Indicators [Data files].
+
+International Monetary Fund.
+(2023).
+Government Finance Statistics Yearbook.
+
+ArmStat.
+(2024).
+Labour Force Survey, Armenia.
+
+GeoStat.
+(2024).
+National Statistics Office of Georgia – Economic Indicators.
+
+United Nations Development Programme.
+(2023).
+Education and Employment in the Caucasus.
+
+# Appendix
+
+A. Key Events Timeline (Breakpoints)
+
+2014 – First Russia–Ukraine War 2018 – Velvet Revolution (Armenia) 2020 – 44-Day Nagorno-Karabakh War & COVID-19 2022 – Second Russia–Ukraine War
+
+B.Code Snippets for Visualizations
+
+See scripts: visualise_ts_data(), plot_net_export(), plot_unemployment_boxplot(), etc. for R implementation of the visuals used in this report.
+
+D. Software Used
+
+RStudio R Microsoft Excel
